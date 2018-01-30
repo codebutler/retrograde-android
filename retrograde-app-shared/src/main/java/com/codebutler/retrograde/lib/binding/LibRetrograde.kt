@@ -19,14 +19,37 @@
 
 package com.codebutler.retrograde.lib.binding
 
+import com.codebutler.retrograde.common.jna.UnsignedInt
 import com.codebutler.retrograde.lib.retro.LibRetro
 import com.sun.jna.Library
 import com.sun.jna.Native
+import com.sun.jna.Pointer
 
 interface LibRetrograde : Library {
 
     companion object {
-        val INSTANCE: LibRetrograde = Native.loadLibrary("retrograde", LibRetrograde::class.java)
+        private val INSTANCE = Native.loadLibrary("retrograde", LibRetrograde::class.java)
+
+        val hwFrameBufferValid = INSTANCE.retrograde_get_retro_hw_frame_buffer_valid()
+
+        fun setLogCallback(cb: LibRetro.retro_log_printf_t) {
+            INSTANCE.retrograde_set_log_callback(cb)
+        }
+
+        fun getRetroLogPrintf() = INSTANCE.retrograde_get_retro_log_printf()
+
+        fun redirectStdio(stdoutPath: String, stderrPath: String) {
+            INSTANCE.retrograde_redirect_stdio(stdoutPath, stderrPath)
+        }
+
+        fun mkfifo(path: String, mode: Int) {
+            val result = INSTANCE.retrograde_mkfifo(path, UnsignedInt(mode.toLong()))
+            if (result != 0) {
+                throw Exception("mkfifo failed: $result")
+            }
+        }
+
+        fun getEglProcAddress(sym: String) = INSTANCE.retrograde_get_egl_proc_address(sym)
     }
 
     fun retrograde_set_log_callback(cb: LibRetro.retro_log_printf_t)
@@ -34,4 +57,10 @@ interface LibRetrograde : Library {
     fun retrograde_get_retro_log_printf(): LibRetro.retro_log_printf_t
 
     fun retrograde_redirect_stdio(stdoutPath: String, stderrPath: String)
+
+    fun retrograde_mkfifo(path: String, mode: UnsignedInt): Int
+
+    fun retrograde_get_egl_proc_address(sym: String): Pointer
+
+    fun retrograde_get_retro_hw_frame_buffer_valid(): Pointer
 }

@@ -26,29 +26,36 @@ import android.opengl.GLSurfaceView
 import android.view.Choreographer
 import com.codebutler.retrograde.lib.game.display.FpsCalculator
 import com.codebutler.retrograde.lib.game.display.GameDisplay
+import kotlin.properties.Delegates
 
-class GlGameDisplay(context: Context) :
-        GameDisplay,
-        Choreographer.FrameCallback {
+class GlGameDisplay(context: Context) : GameDisplay, Choreographer.FrameCallback {
 
     private val glSurfaceView = GLSurfaceView(context)
+    private val renderer = GlRenderer2d()
     private val fpsCalculator = FpsCalculator()
-    private val renderer: GlRenderer2d
+
+    private var isReady = false
+
+    val glVersion
+        get() = renderer.glVersion!!
 
     init {
-        // Create an OpenGL ES 2.0 context.
         glSurfaceView.setEGLContextClientVersion(2)
-
-        // Set the Renderer for drawing on the GLSurfaceView
-        renderer = GlRenderer2d()
         glSurfaceView.setRenderer(renderer)
-
-        // Render the view only when there is a change in the drawing data
         glSurfaceView.renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
 
-        renderer.callback = {
+        renderer.createdCallback = {
+            isReady = true
+            readyCallback?.invoke()
+        }
+
+        renderer.drawCallback = {
             fpsCalculator.update()
         }
+    }
+
+    override var readyCallback: (() -> Unit)? by Delegates.observable<(() -> Unit)?>(null) {
+        prop, old, new -> if (isReady) { new?.invoke() }
     }
 
     override val view = glSurfaceView
@@ -56,8 +63,15 @@ class GlGameDisplay(context: Context) :
     override val fps: Long
         get() = fpsCalculator.fps
 
-    override fun update(bitmap: Bitmap) {
+    override fun render(bitmap: Bitmap) {
         renderer.setBitmap(bitmap)
+    }
+
+    val currentHwFramebuffer: Int?
+        get() = renderer.fboId
+
+    fun renderHw(width: Int, height: Int) {
+        renderer.setHwWidthHeight(width, height)
     }
 
     override fun onResume(owner: LifecycleOwner) {

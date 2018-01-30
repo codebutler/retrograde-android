@@ -20,11 +20,16 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <limits.h>
+#include <sys/stat.h>
+#include <errno.h>
+#include <EGL/egl.h>
 
 extern "C" {
     enum retro_log_level {
         RETRO_LOG_DUMMY = INT_MAX
     };
+
+    #define RETRO_HW_FRAME_BUFFER_VALID ((void*)-1)
 
     typedef void (*retro_log_printf_t)(
             enum retro_log_level level,
@@ -62,5 +67,24 @@ extern "C" {
 
         setvbuf(stdout, NULL, _IONBF, 0);
         setvbuf(stderr, NULL, _IONBF, 0);
+    }
+
+    JNIEXPORT
+    int retrograde_mkfifo(const char *path, mode_t mode) {
+        int ret = mkfifo(path, mode);
+        if (ret == -1) {
+            return errno;
+        }
+        return 0;
+    }
+
+    JNIEXPORT
+    void* retrograde_get_egl_proc_address(const char *sym) {
+        return (void*) eglGetProcAddress(sym);
+    }
+
+    JNIEXPORT
+    void* retrograde_get_retro_hw_frame_buffer_valid() {
+        return RETRO_HW_FRAME_BUFFER_VALID;
     }
 }

@@ -25,9 +25,11 @@ import android.view.View
 
 interface GameDisplay : DefaultLifecycleObserver {
 
+    var readyCallback: (() -> Unit)?
+
     val view: View
 
     val fps: Long
 
-    fun update(bitmap: Bitmap)
+    fun render(bitmap: Bitmap)
 }

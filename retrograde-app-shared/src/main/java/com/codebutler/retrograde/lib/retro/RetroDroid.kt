@@ -33,6 +33,7 @@ import com.codebutler.retrograde.lib.binding.LibRetrograde
 import com.codebutler.retrograde.lib.game.audio.GameAudio
 import com.codebutler.retrograde.lib.game.display.FpsCalculator
 import com.codebutler.retrograde.lib.game.display.GameDisplay
+import com.codebutler.retrograde.lib.game.display.gl.GlGameDisplay
 import com.sun.jna.Native
 import timber.log.Timber
 import java.io.File
@@ -75,6 +76,8 @@ class RetroDroid(
 
     init {
         Native.setCallbackExceptionHandler { c, e ->
+            timer?.cancel()
+            timer = null
             handler.post {
                 throw Exception("JNA: Callback $c threw exception", e)
             }
@@ -85,7 +88,7 @@ class RetroDroid(
         if (BuildConfig.DEBUG) {
             val stdoutFile = File(context.filesDir, "stdout.log")
             val stderrFile = File(context.filesDir, "stderr.log")
-            LibRetrograde.INSTANCE.retrograde_redirect_stdio(stdoutFile.path, stderrFile.path)
+            LibRetrograde.redirectStdio(stdoutFile.path, stderrFile.path)
         }
 
         val coreLibraryName = coreFile.nameWithoutExtension.substring(3) // FIXME
@@ -123,7 +126,11 @@ class RetroDroid(
 
             val bitmap = videoBitmapCache.getBitmap(width, height, pixelFormat.bitmapConfig)
             bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(newBuffer))
-            gameDisplay.update(bitmap)
+            gameDisplay.render(bitmap)
+        }
+
+        retro.hwVideoCallback = { width, height ->
+            (gameDisplay as GlGameDisplay).renderHw(width, height)
         }
 
         retro.audioSampleCallback = { left, right ->
@@ -140,6 +147,29 @@ class RetroDroid(
         retro.inputPollCallback = { /* Nothing to do here? */ }
 
         retro.inputStateCallback = this::onInputState
+
+        retro.hwSupportedCallback = cb@ { contextType, versionMajor, versionMinor ->
+            if (gameDisplay !is GlGameDisplay) {
+                 return@cb false
+            }
+            val supportedVersion = gameDisplay.glVersion
+            Timber.d("SUPPORTED GL VERSION!?!! $supportedVersion")
+            return@cb when (contextType) {
+                Retro.HwContextType.NONE -> false
+                Retro.HwContextType.OPENGL -> false
+                Retro.HwContextType.OPENGLES2 -> supportedVersion.major >= 2
+                Retro.HwContextType.OPENGL_CORE -> false
+                Retro.HwContextType.OPENGLES3 -> supportedVersion.major >= 3
+                Retro.HwContextType.OPENGLES_VERSION -> {
+                    supportedVersion.major >= versionMajor && supportedVersion.minor >= versionMinor
+                }
+                Retro.HwContextType.VULKAN -> false
+            }
+        }
+
+        retro.hwGetCurrentFramebufferCallback = {
+            (gameDisplay as? GlGameDisplay)?.currentHwFramebuffer
+        }
 
         retro.init()
     }
@@ -174,6 +204,11 @@ class RetroDroid(
         if (saveData != null) {
             retro.setMemoryData(Retro.MemoryId.SAVE_RAM, saveData)
         }
+
+        // FIXME: Move this
+        if (gameDisplay is GlGameDisplay) {
+            retro.hwContextReset?.invoke()
+        }
     }
 
     fun start() {
@@ -182,8 +217,19 @@ class RetroDroid(
             return
         }
         this.timer = fixedRateTimer(period = 1000L / avInfo.timing.fps.toLong()) {
+
+            // FIXME: eglMakeCurrent()
+
+            // FIXME:
+            // Phoenix also calls glBindFramebuffer() here, but I'm not sure this is needed.
+            // It looks like the cores do this.
+            // See https://github.com/team-phoenix/Phoenix/blob/master/backend/core/libretrorunner.cpp#L127
+
             retro.run()
             fpsCalculator.update()
+
+            // FIXME Phoenix calls eglMakeCurrent(), and some Qt-specific method called doneCurrent()
+            // See https://github.com/team-phoenix/Phoenix/blob/master/backend/core/libretrorunner.cpp#L166
         }
     }
 

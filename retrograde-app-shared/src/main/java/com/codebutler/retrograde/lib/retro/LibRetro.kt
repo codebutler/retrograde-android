@@ -21,6 +21,8 @@ package com.codebutler.retrograde.lib.retro
 
 import com.codebutler.retrograde.common.jna.SizeT
 import com.codebutler.retrograde.common.jna.UnsignedInt
+import com.codebutler.retrograde.lib.binding.LibRetrograde
+
 import com.sun.jna.Callback
 import com.sun.jna.Library
 import com.sun.jna.Pointer
@@ -38,6 +40,7 @@ interface LibRetro : Library {
         const val RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY = 9
         const val RETRO_ENVIRONMENT_SET_PIXEL_FORMAT = 10
         const val RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS = 11
+        const val RETRO_ENVIRONMENT_SET_HW_RENDER = 14
         const val RETRO_ENVIRONMENT_GET_VARIABLE = 15
         const val RETRO_ENVIRONMENT_SET_VARIABLES = 16
         const val RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE = 17
@@ -51,6 +54,8 @@ interface LibRetro : Library {
 
         const val RETRO_ENVIRONMENT_SET_MEMORY_MAPS = 36 or RETRO_ENVIRONMENT_EXPERIMENTAL
         const val RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS = 42 or RETRO_ENVIRONMENT_EXPERIMENTAL
+
+        val RETRO_HW_FRAME_BUFFER_VALID = LibRetrograde.hwFrameBufferValid
     }
 
     object retro_pixel_format {
@@ -78,6 +83,17 @@ interface LibRetro : Library {
         const val RETRO_LOG_INFO = 1
         const val RETRO_LOG_WARN = 2
         const val RETRO_LOG_ERROR = 3
+    }
+
+    object retro_hw_context_type {
+        const val RETRO_HW_CONTEXT_NONE = 0
+        const val RETRO_HW_CONTEXT_OPENGL = 1
+        const val RETRO_HW_CONTEXT_OPENGLES2 = 2
+        const val RETRO_HW_CONTEXT_OPENGL_CORE = 3
+        const val RETRO_HW_CONTEXT_OPENGLES3 = 4
+        const val RETRO_HW_CONTEXT_OPENGLES_VERSION = 5
+        const val RETRO_HW_CONTEXT_VULKAN = 6
+        const val RETRO_HW_CONTEXT_DUMMY = Integer.MAX_VALUE
     }
 
     class retro_system_info : Structure() {
@@ -274,6 +290,51 @@ interface LibRetro : Library {
         }
 
         override fun getFieldOrder(): List<String> = listOf("types", "num_types")
+    }
+
+    interface retro_hw_context_reset_t : Callback {
+        fun invoke()
+    }
+
+    interface retro_hw_get_current_framebuffer_t : Callback {
+        fun invoke(): UnsignedInt
+    }
+
+    interface retro_hw_get_proc_address_t : Callback {
+        fun invoke(sym: String): Pointer
+    }
+
+    class retro_hw_render_callback(pointer: Pointer? = null) : Structure(pointer) {
+        @JvmField var context_type: Int? = null
+        @JvmField var context_reset: retro_hw_context_reset_t? = null
+        @JvmField var get_current_framebuffer: retro_hw_get_current_framebuffer_t? = null
+        @JvmField var get_proc_address: retro_hw_get_proc_address_t? = null
+        @JvmField var depth: Boolean = false
+        @JvmField var stencil: Boolean = false
+        @JvmField var bottom_left_origin: Boolean = false
+        @JvmField var version_major: UnsignedInt? = null
+        @JvmField var version_minor: UnsignedInt? = null
+        @JvmField var cache_context: Boolean = false
+        @JvmField var context_destroy: retro_hw_context_reset_t? = null
+        @JvmField var debug_context: Boolean = false
+
+        init {
+            read()
+        }
+
+        override fun getFieldOrder() = listOf(
+                "context_type",
+                "context_reset",
+                "get_current_framebuffer",
+                "get_proc_address",
+                "depth",
+                "stencil",
+                "bottom_left_origin",
+                "version_major",
+                "version_minor",
+                "cache_context",
+                "context_destroy",
+                "debug_context")
     }
 
     interface retro_environment_t : Callback {

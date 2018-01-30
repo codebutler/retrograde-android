@@ -100,8 +100,6 @@ class Square {
 
     private val drawOrder = shortArrayOf(0, 1, 2, 0, 2, 3) // order to draw vertices
 
-    var bitmap: Bitmap? = null
-
     private var textureOffset = -1
     private val texturePool = intArrayOf(-1, -1, -1)
 
@@ -109,6 +107,8 @@ class Square {
     private var surfaceHeight: Int = 0
     private var bitmapWidth: Int = 0
     private var bitmapHeight: Int = 0
+
+    var bitmap: Bitmap? = null
 
     init {
         // initialize vertex byte buffer for shape coordinates
@@ -157,7 +157,7 @@ class Square {
         updateTransform()
     }
 
-    fun setBitmapBounds(width: Int, height: Int) {
+    private fun setBitmapBounds(width: Int, height: Int) {
         if (width == bitmapWidth && height == bitmapHeight) return
         bitmapWidth = width
         bitmapHeight = height
@@ -187,46 +187,66 @@ class Square {
 
     fun draw() {
         val b = bitmap ?: return
-
         setBitmapBounds(b.width, b.height)
+        draw(bindTexture(b))
+    }
 
+    fun draw(textureLocation: Int, width: Int, height: Int) {
+        setBitmapBounds(width, height)
+        draw(textureLocation)
+    }
+
+    private fun draw(textureLocation: Int) {
         // Add program to OpenGL ES environment
         glUseProgram(program)
+        GlUtil.checkGlError("use program")
 
         // bind the texture
-        val textureLocation = bindTexture(b)
-        glActiveTexture(0)
-        glBindTexture(GL_TEXTURE_2D, textureLocation)
+        glActiveTexture(GLES20.GL_TEXTURE0)
+        GlUtil.checkGlError("glActiveTexture")
+
+        glBindTexture(GLES20.GL_TEXTURE_2D, textureLocation)
+        GlUtil.checkGlError("glBindTexture")
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
         glUniform1i(glGetUniformLocation(program, "u_Texture"), 0)
+        GlUtil.checkGlError("glUniform1i")
 
         // update the transform
         val transformLocation = glGetUniformLocation(program, "u_Transform")
         glUniformMatrix4fv(transformLocation, 1, false, transform, 0)
+        GlUtil.checkGlError("glUniformMatrix4fv")
 
         // getProvider handle to vertex shader's vPosition member
         val positionHandle = glGetAttribLocation(program, "vPosition")
 
         // Enable a handle to the triangle vertices
         glEnableVertexAttribArray(positionHandle)
+        GlUtil.checkGlError("glEnableVertexAttribArray")
 
         // Prepare the triangle coordinate data
         glVertexAttribPointer(
                 positionHandle, COORDS_PER_VERTEX,
                 GL_FLOAT, false,
                 vertexStride, vertexBuffer)
+        GlUtil.checkGlError("glVertexAttribPointer")
 
         // Pass in the texture coordinate information
         val textureCoordHandle = glGetAttribLocation(program, "a_TexCoordinate")
         uvBuffer.position(0)
         glVertexAttribPointer(textureCoordHandle, 2, GL_FLOAT, false,
                 0, uvBuffer)
+        GlUtil.checkGlError("glVertexAttribPointer")
 
         glEnableVertexAttribArray(textureCoordHandle)
+        GlUtil.checkGlError("glEnableVertexAttribArray")
 
         // Draw the square
         glDrawElements(
                 GL_TRIANGLES, drawOrder.size,
                 GL_UNSIGNED_SHORT, drawListBuffer)
+        GlUtil.checkGlError("glDrawElements")
 
         // Disable vertex array
         glDisableVertexAttribArray(positionHandle)

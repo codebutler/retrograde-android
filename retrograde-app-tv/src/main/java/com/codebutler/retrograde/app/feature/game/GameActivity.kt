@@ -90,28 +90,32 @@ class GameActivity : RetrogradeActivity() {
             SwGameDisplay(this)
         }
 
-        gameDisplayLayout.addView(gameDisplay.view, MATCH_PARENT, MATCH_PARENT)
-        lifecycle.addObserver(gameDisplay)
+        gameDisplay.readyCallback = cb@ {
+            // FIXME: Full Activity lifecycle handling.
+            if (savedInstanceState != null) {
+                return@cb
+            }
 
-        // FIXME: Full Activity lifecycle handling.
-        if (savedInstanceState != null) {
-            return
+            gameDisplayLayout.post {
+                val gameId = intent.getIntExtra(EXTRA_GAME_ID, -1)
+                gameLoader.load(gameId)
+                        .subscribeOn(Schedulers.io())
+                        .observeOn(AndroidSchedulers.mainThread())
+                        .autoDisposable(scope())
+                        .subscribe(
+                                { data ->
+                                    progressBar.visibility = View.GONE
+                                    loadRetro(data)
+                                },
+                                { error ->
+                                    Timber.e(error, "Failed to load game")
+                                    finish()
+                                })
+            }
         }
 
-        val gameId = intent.getIntExtra(EXTRA_GAME_ID, -1)
-        gameLoader.load(gameId)
-                .subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .autoDisposable(scope())
-                .subscribe(
-                        { data ->
-                            progressBar.visibility = View.GONE
-                            loadRetro(data)
-                        },
-                        { error ->
-                            Timber.e(error, "Failed to load game")
-                            finish()
-                        })
+        gameDisplayLayout.addView(gameDisplay.view, MATCH_PARENT, MATCH_PARENT)
+        lifecycle.addObserver(gameDisplay)
 
         if (BuildConfig.DEBUG) {
             addFpsView()

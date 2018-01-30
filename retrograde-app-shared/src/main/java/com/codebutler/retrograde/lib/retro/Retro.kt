@@ -28,6 +28,7 @@ import com.codebutler.retrograde.common.jna.SizeT
 import com.codebutler.retrograde.common.jna.UnsignedInt
 import com.codebutler.retrograde.lib.binding.LibC
 import com.codebutler.retrograde.lib.binding.LibRetrograde
+import com.codebutler.retrograde.lib.retro.LibRetro.Companion.RETRO_HW_FRAME_BUFFER_VALID
 import com.codebutler.retrograde.lib.retro.LibRetro.retro_pixel_format.RETRO_PIXEL_FORMAT_RGB565
 import com.codebutler.retrograde.lib.retro.LibRetro.retro_pixel_format.RETRO_PIXEL_FORMAT_XRGB8888
 import com.codebutler.retrograde.lib.retro.LibRetro.retro_system_info
@@ -59,15 +60,25 @@ class Retro(coreLibraryName: String) {
 
     var environmentCallback: EnvironmentCallback? = null
     var videoCallback: ((data: ByteArray, width: Int, height: Int, pitch: Int) -> Unit)? = null
+    var hwVideoCallback: ((width: Int, height: Int) -> Unit)? = null
     var audioSampleCallback: ((left: Short, right: Short) -> Unit)? = null
     var audioSampleBatchCallback: ((data: ByteArray) -> Long)? = null
     var inputPollCallback: (() -> Unit)? = null
     var inputStateCallback: ((port: Int, device: Int, index: Int, id: Int) -> Boolean)? = null
+    var hwSupportedCallback: ((contextType: HwContextType, versionMajor: Int, versionMinor: Int) -> Boolean)? = null
+    var hwGetCurrentFramebufferCallback: (() -> Int?)? = null
+
+    var hwContextReset: LibRetro.retro_hw_context_reset_t? = null
+        private set
 
     private val environment = RetroEnvironmentT(this)
 
     private val videoRefresh = object : LibRetro.retro_video_refresh_t {
         override fun invoke(data: Pointer, width: UnsignedInt, height: UnsignedInt, pitch: SizeT) {
+            if (data == RETRO_HW_FRAME_BUFFER_VALID) {
+                hwVideoCallback?.invoke(width.toInt(), height.toInt())
+                return
+            }
             val buffer = videoBufferCache.getBuffer(height.toInt() * pitch.toInt())
             data.read(0, buffer, 0, buffer.size)
             videoCallback?.invoke(buffer, width.toInt(), height.toInt(), pitch.toInt())
@@ -105,6 +116,19 @@ class Retro(coreLibraryName: String) {
 
     private val videoBufferCache = BufferCache()
     private val audioBufferCache = BufferCache()
+
+    private val hwGetProcAddressCb = object : LibRetro.retro_hw_get_proc_address_t {
+        override fun invoke(sym: String): Pointer {
+            return LibRetrograde.getEglProcAddress(sym)
+        }
+    }
+
+    private val hwGetCurrentFbCb = object : LibRetro.retro_hw_get_current_framebuffer_t {
+        override fun invoke(): UnsignedInt {
+            val fbo = hwGetCurrentFramebufferCallback?.invoke() ?: throw IllegalArgumentException("null fbo")
+            return UnsignedInt(fbo.toLong())
+        }
+    }
 
     data class ControllerDescription(
             val desc: String,
@@ -268,6 +292,21 @@ class Retro(coreLibraryName: String) {
         }
     }
 
+    enum class HwContextType(val value: Int) {
+        NONE(0),
+        OPENGL(1),
+        OPENGLES2(2),
+        OPENGL_CORE(3),
+        OPENGLES3(4),
+        OPENGLES_VERSION(5),
+        VULKAN(6);
+
+        companion object {
+            private val valueCache = mapOf(*HwContextType.values().map { it.value to it }.toTypedArray())
+            fun fromValue(value: Int) = valueCache[value]!!
+        }
+    }
+
     interface EnvironmentCallback {
 
         fun onSetVariables(variables: Map<String, Variable>)
@@ -375,6 +414,9 @@ class Retro(coreLibraryName: String) {
     fun getMemoryData(memory: MemoryId): ByteArray? {
         val id = UnsignedInt(memory.value.toLong())
         val size = libRetro.retro_get_memory_size(id).toInt()
+        if (size == 0) {
+            return null
+        }
         val pointer = libRetro.retro_get_memory_data(id)
         return pointer?.getByteArray(0, size)
     }
@@ -426,6 +468,24 @@ class Retro(coreLibraryName: String) {
                         }
                         callback.onSetInputDescriptors(descriptors.toList())
                         return true
+                    }
+                    LibRetro.RETRO_ENVIRONMENT_SET_HW_RENDER -> {
+                        val cb = LibRetro.retro_hw_render_callback(data).apply {
+                            get_proc_address = retro.hwGetProcAddressCb
+                            get_current_framebuffer = retro.hwGetCurrentFbCb
+                            write()
+                        }
+                        retro.hwContextReset = cb.context_reset
+                        val contextType = cb.context_type
+                        val versionMajor = cb.version_major
+                        val versionMinor = cb.version_minor
+                        if (contextType == null || versionMajor == null || versionMinor == null) {
+                            return false
+                        }
+                        return retro.hwSupportedCallback?.invoke(
+                                HwContextType.fromValue(contextType),
+                                versionMajor.toInt(),
+                                versionMinor.toInt()) ?: false
                     }
                     LibRetro.RETRO_ENVIRONMENT_GET_VARIABLE -> {
                         val variable = retro_variable(data)
@@ -487,8 +547,8 @@ class Retro(coreLibraryName: String) {
 
                         // Can't use our callback with libretro directly because
                         // JNA does not support variadic function callbacks.
-                        LibRetrograde.INSTANCE.retrograde_set_log_callback(logCb)
-                        val retrogradeLog = LibRetrograde.INSTANCE.retrograde_get_retro_log_printf()
+                        LibRetrograde.setLogCallback(logCb)
+                        val retrogradeLog = LibRetrograde.getRetroLogPrintf()
 
                         val logCallback = LibRetro.retro_log_callback(data)
                         logCallback.log = retrogradeLog
