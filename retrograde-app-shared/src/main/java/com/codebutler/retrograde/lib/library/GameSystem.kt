@@ -107,6 +107,15 @@ data class GameSystem(
                         "arcade",
                         "fbalpha_libretro_android.so.zip",
                         listOf("zip")
+                ),
+                GameSystem(
+                        "n64",
+                        R.string.game_system_title_n64,
+                        R.string.game_system_abbr_n64,
+                        R.drawable.game_system_n64,
+                        "n64",
+                        "parallel_n64_libretro_android.so.zip",
+                        listOf("z64")
                 )
         )
 
